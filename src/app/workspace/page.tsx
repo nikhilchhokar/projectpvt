@@ -354,7 +354,7 @@ function WorkspaceInner() {
                 onClick={() => setRightTab(tab.id)}
                 className={`flex-1 px-3 py-2.5 text-xs font-medium transition-colors ${
                   rightTab === tab.id
-                    ? "text-mist-100 border-mist-100 border-b-2"
+                    ? "text-accent border-accent border-b-2"
                     : "text-mist-500 hover:text-mist-300 border-b-2 border-transparent"
                 }`}
               >

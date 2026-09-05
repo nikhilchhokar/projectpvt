@@ -16,10 +16,10 @@ import { ConfidenceMeter, MetricRow, SectionLabel } from "./primitives";
 
 // --- WHY --------------------------------------------------------------------
 
-const STRENGTH_TONE: Record<string, string> = {
-  Strong: "text-good",
-  Moderate: "text-warn",
-  Weak: "text-bad",
+const STRENGTH_TONE: Record<string, { text: string; dot: string }> = {
+  Strong: { text: "text-good", dot: "bg-good" },
+  Moderate: { text: "text-warn", dot: "bg-warn" },
+  Weak: { text: "text-bad", dot: "bg-bad" },
 };
 
 function agentIdFromEvidence(id: string): AgentId | null {
@@ -56,12 +56,13 @@ export function EvidencePanel({
             : undefined;
           const isOpen = expanded === item.id;
           const isActive = agentId !== null && agentId === activeAgent;
+          const strength = STRENGTH_TONE[item.strength] ?? { text: "text-mist-400", dot: "bg-mist-500" };
 
           return (
             <div
               key={item.id}
               className={`border-ink-700/70 border-b transition-colors ${
-                isActive ? "bg-ink-800/70" : ""
+                isActive ? "bg-accent/5" : ""
               }`}
             >
               <button
@@ -71,18 +72,20 @@ export function EvidencePanel({
                 }}
                 className="hover:bg-ink-800/60 w-full px-4 py-3 text-left transition-colors"
               >
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-mist-100 text-sm font-medium">{item.label}</span>
-                  <span
-                    className={`text-[11px] font-medium ${STRENGTH_TONE[item.strength] ?? "text-mist-400"}`}
-                  >
-                    {item.strength}
-                  </span>
+                <div className="flex items-center gap-2.5">
+                  {/* Colored strength dot */}
+                  <span className={`size-2 shrink-0 rounded-full ${strength.dot}`} />
+                  <div className="flex flex-1 items-baseline justify-between gap-3">
+                    <span className="text-mist-100 text-sm font-medium">{item.label}</span>
+                    <span className={`text-[11px] font-medium ${strength.text}`}>
+                      {item.strength}
+                    </span>
+                  </div>
                 </div>
 
-                <p className="text-mist-400 mt-1 text-xs leading-relaxed">{item.detail}</p>
+                <p className="text-mist-400 mt-1 pl-[18px] text-xs leading-relaxed">{item.detail}</p>
 
-                <div className="mt-2.5">
+                <div className="mt-2.5 pl-[18px]">
                   <ConfidenceMeter
                     value={item.confidence}
                     status={
@@ -99,11 +102,11 @@ export function EvidencePanel({
 
               {isOpen && (
                 <div className="animate-fade-in bg-ink-900/60 px-4 pt-1 pb-3">
-                  <p className="text-mist-500 mb-2 text-[11px] leading-relaxed italic">
+                  <p className="text-mist-500 mb-2 pl-[18px] text-[11px] leading-relaxed italic">
                     {item.source}
                   </p>
                   {agent && (
-                    <div className="divide-ink-700/60 divide-y">
+                    <div className="divide-ink-700/60 divide-y pl-[18px]">
                       {agent.metrics.map((metric) => (
                         <MetricRow
                           key={metric.label}
@@ -114,7 +117,7 @@ export function EvidencePanel({
                     </div>
                   )}
                   {agent?.note && (
-                    <p className="text-mist-400 border-ink-600 mt-2 border-l-2 pl-2.5 text-[11px] leading-relaxed">
+                    <p className="text-mist-400 border-accent/30 mt-2 border-l-2 pl-2.5 text-[11px] leading-relaxed">
                       {agent.note}
                     </p>
                   )}
@@ -165,13 +168,16 @@ export function TracePanel({ result }: { result: AnalysisResult }) {
           {result.trace.map((step, index) => {
             const mark = STEP_MARK[step.status];
             const last = index === result.trace.length - 1;
+            const isLatest = index === result.trace.length - 1 && step.status === "complete";
             return (
               <li key={step.id} className="relative flex gap-3 pb-4">
                 {!last && (
                   <span className="bg-ink-700 absolute top-6 bottom-0 left-[11px] w-px" />
                 )}
                 <span
-                  className={`mt-0.5 flex size-[23px] shrink-0 items-center justify-center rounded-full border text-[11px] ${mark.tone}`}
+                  className={`mt-0.5 flex size-[23px] shrink-0 items-center justify-center rounded-full border text-[11px] ${mark.tone} ${
+                    isLatest ? "animate-pulse-ring" : ""
+                  }`}
                 >
                   {mark.glyph}
                 </span>

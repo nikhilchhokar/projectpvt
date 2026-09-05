@@ -31,7 +31,7 @@ export default function ResultCard({
   const hasPlace = Boolean(result.visualization.focus);
 
   return (
-    <div className="border-ink-700 bg-ink-850 animate-fade-up rounded-xl border p-5">
+    <div className="border-ink-700 border-l-accent bg-ink-850 animate-fade-up rounded-xl border border-l-2 p-5">
       <div className="flex items-start justify-between gap-4">
         <SectionLabel>SatQuery result</SectionLabel>
         <span className="text-mist-500 tabular font-mono text-[11px]">
@@ -40,10 +40,10 @@ export default function ResultCard({
       </div>
 
       <div className="mt-3 flex items-start gap-3">
-        <span className="text-2xl leading-none select-none" aria-hidden>
+        <span className="text-3xl leading-none select-none" aria-hidden>
           {result.icon}
         </span>
-        <h2 className="text-mist-100 text-xl leading-snug font-medium tracking-[-0.01em] sm:text-2xl">
+        <h2 className="text-mist-100 text-xl leading-snug font-semibold tracking-[-0.01em] sm:text-2xl">
           {result.headline}
         </h2>
       </div>
@@ -73,6 +73,7 @@ export default function ResultCard({
           variant={whyActive ? "primary" : "secondary"}
           onClick={onWhy}
           aria-pressed={whyActive}
+          className="rounded-full"
         >
           <span aria-hidden>🔎</span> Why?
           <span className="text-mist-500 ml-0.5 text-xs font-normal">{evidenceCount}</span>
@@ -82,6 +83,7 @@ export default function ResultCard({
           onClick={onShowMe}
           disabled={!hasPlace}
           aria-pressed={showMeActive}
+          className="rounded-full"
           title={
             hasPlace
               ? "Zoom to the evidence behind this answer"

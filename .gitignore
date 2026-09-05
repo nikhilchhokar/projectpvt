@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# scratch output from the preview/diagnostic scripts
+/preview-*.png
+/served.png
+/response.json
+/payload.json
+
+# local Claude Code settings
+.claude/settings.local.json

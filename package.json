@@ -1,12 +1,17 @@
 {
-  "name": "satquery-scaffold",
+  "name": "satquery-ai",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "diagnose": "tsx scripts/diagnose.ts",
+    "scenarios": "tsx scripts/run-scenarios.ts",
+    "smoke": "tsx scripts/smoke.ts",
+    "payload": "tsx scripts/payload.ts",
+    "preview": "tsx scripts/render-preview.ts"
   },
   "dependencies": {
     "next": "16.3.4",
@@ -21,6 +26,8 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.4",
     "tailwindcss": "^4",
+    "tsx": "^4.23.13",
     "typescript": "^5"
-  }
+  },
+  "description": "SatQuery AI - interactive vision-language assistant for multimodal remote sensing analysis"
 }

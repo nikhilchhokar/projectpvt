@@ -48,7 +48,24 @@ const VALID_INTENTS: Intent[] = [
   "cross_modal_analysis",
 ];
 
-const REQUEST_TIMEOUT_MS = 4000;
+/**
+ * Per-request budget. A warm 1B model answers an intent classification in one
+ * to two seconds; this leaves headroom without letting a stalled runtime hold
+ * the analysis open long enough to look broken.
+ */
+const REQUEST_TIMEOUT_MS = 12_000;
+
+/**
+ * Availability probe budget, deliberately far longer.
+ *
+ * The first call to a cold local runtime pays for loading the weights into
+ * memory -- twenty seconds or more. Probing with the per-request timeout meant
+ * a freshly started server always timed out, silently fell back, and then
+ * stayed fallen back, because provider resolution is memoised for the process.
+ * The interface would have reported the deterministic interpreter all session
+ * while a perfectly working model sat idle beside it.
+ */
+const AVAILABILITY_TIMEOUT_MS = 90_000;
 
 export interface PocketLLMConfig {
   url: string;
@@ -86,14 +103,26 @@ export class PocketLLMProvider implements LocalLLMProvider {
 
   async isAvailable(): Promise<boolean> {
     try {
-      const reply = await this.complete("Reply with the single word: ready", 8);
+      const reply = await this.complete(
+        "Reply with the single word: ready",
+        8,
+        AVAILABILITY_TIMEOUT_MS,
+      );
       return typeof reply === "string" && reply.length > 0;
-    } catch {
+    } catch (error) {
+      console.warn(
+        `[satquery] ${this.config.displayName} probe failed:`,
+        error instanceof Error ? error.message : error,
+      );
       return false;
     }
   }
 
-  private async complete(prompt: string, maxTokens: number): Promise<string> {
+  private async complete(
+    prompt: string,
+    maxTokens: number,
+    timeoutMs = REQUEST_TIMEOUT_MS,
+  ): Promise<string> {
     const response = await fetch(this.config.url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -103,7 +132,7 @@ export class PocketLLMProvider implements LocalLLMProvider {
         max_tokens: maxTokens,
         temperature: 0,
       }),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (!response.ok) throw new Error(`Local LLM returned ${response.status}`);
     const data = (await response.json()) as {

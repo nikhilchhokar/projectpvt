@@ -43,14 +43,14 @@ function ImageCard({ image }: { image: ImageAsset }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <span
-              className={`rounded px-1.5 py-0.5 text-[9px] font-semibold tracking-wide uppercase ${
+              className={`rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase ${
                 isSar ? "bg-sarpink/15 text-sarpink" : "bg-water/15 text-water"
               }`}
             >
               {isSar ? "SAR" : "Optical"}
             </span>
             {image.role !== "single" && (
-              <span className="bg-ink-700 text-mist-300 rounded px-1.5 py-0.5 text-[9px] font-semibold tracking-wide uppercase">
+              <span className="bg-ink-700 text-mist-300 rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase">
                 {ROLE_LABEL[image.role]}
               </span>
             )}
@@ -58,10 +58,10 @@ function ImageCard({ image }: { image: ImageAsset }) {
           <p className="text-mist-200 mt-1 truncate font-mono text-[11px]" title={image.name}>
             {image.name}
           </p>
-          <p className="text-mist-500 tabular mt-0.5 font-mono text-[10px]">
+          <p className="text-mist-500 tabular mt-0.5 font-mono text-[11px]">
             {image.width}×{image.height} · {image.acquired}
           </p>
-          <p className="text-mist-500 tabular font-mono text-[10px]">
+          <p className="text-mist-500 tabular font-mono text-[11px]">
             {image.crs} · {formatBytes(image.sizeBytes)}
           </p>
         </div>
@@ -82,7 +82,7 @@ export default function InputPanel({
       <div>
         <div className="mb-2 flex items-center justify-between">
           <SectionLabel>Inputs</SectionLabel>
-          <span className="text-mist-500 tabular font-mono text-[10px]">
+          <span className="text-mist-500 tabular font-mono text-[11px]">
             {images.length} image{images.length === 1 ? "" : "s"}
           </span>
         </div>
@@ -106,7 +106,7 @@ export default function InputPanel({
                   </span>
                   <div className="min-w-0">
                     <p className="text-mist-300 text-[11px] font-medium">{check.label}</p>
-                    <p className="text-mist-500 text-[10px] leading-relaxed">{check.detail}</p>
+                    <p className="text-mist-500 text-[11px] leading-relaxed">{check.detail}</p>
                   </div>
                 </li>
               );

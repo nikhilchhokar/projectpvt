@@ -9,8 +9,9 @@
  * the person who needs it is often not the person at the keyboard.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { rasterUrl } from "@/lib/satquery/client";
+import { buildOverlayCanvas } from "@/lib/satquery/overlay";
 import type { AnalysisResult } from "@/lib/satquery/types";
 import { Button, SectionLabel, StatusPill } from "./primitives";
 
@@ -23,7 +24,72 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-/** Inline mini confidence bar used in the evidence table. */
+/**
+ * The analysed scene with its evidence drawn on.
+ *
+ * The report previously printed a bare raster under a line reading "N evidence
+ * overlays available in the workspace" -- a document written for the person who
+ * is not at the keyboard, telling them to go and look at the keyboard. The
+ * overlays are composited here so the artefact stands on its own.
+ */
+function EvidenceThumbnail({
+  result,
+  sceneKey,
+  modality,
+}: {
+  result: AnalysisResult;
+  sceneKey: string;
+  modality: "optical" | "sar";
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const shown = result.visualization.primaryOverlayIds;
+    const overlays = result.visualization.overlays.filter((o) => shown.includes(o.id));
+    const base = new Image();
+    base.onload = () => {
+      canvas.width = base.width;
+      canvas.height = base.height;
+      ctx.drawImage(base, 0, 0);
+      for (const overlay of overlays) {
+        const layer = buildOverlayCanvas(overlay.mask, overlay.color, 170);
+        if (layer) ctx.drawImage(layer, 0, 0);
+      }
+      // Outline each mapped region, matching the workspace annotation.
+      ctx.strokeStyle = "rgba(255,255,255,0.9)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 5]);
+      for (const region of result.agents.flatMap((a) => a.regions)) {
+        const [x0, y0, x1, y1] = region.bbox;
+        ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+      }
+      ctx.setLineDash([]);
+    };
+    base.src = rasterUrl(sceneKey, modality === "sar" ? "sar" : "optical");
+  }, [result, sceneKey, modality]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="border-ink-700 w-48 rounded-lg border"
+      role="img"
+      aria-label="Analysed scene with detected regions highlighted"
+    />
+  );
+}
+
+/**
+ * Inline mini confidence bar used in the evidence table.
+ *
+ * Bands match ConfidenceMeter exactly. They drifted apart once (0.60 here,
+ * 0.62 there), which rendered the same 61% amber in the panel and red in the
+ * report -- two different verdicts on one number, in one product.
+ */
 function MiniBar({ value, className = "" }: { value: number; className?: string }) {
   const pct = Math.round(value * 100);
   return (
@@ -31,7 +97,7 @@ function MiniBar({ value, className = "" }: { value: number; className?: string 
       <div className="bg-ink-700 h-1 w-12 overflow-hidden rounded-full">
         <div
           className={`h-full rounded-full ${
-            value >= 0.8 ? "bg-good" : value >= 0.6 ? "bg-warn" : "bg-bad"
+            value >= 0.8 ? "bg-good" : value >= 0.62 ? "bg-warn" : "bg-bad"
           }`}
           style={{ width: `${pct}%` }}
         />
@@ -49,19 +115,53 @@ export default function ReportModal({
   onClose: () => void;
 }) {
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
+  /**
+   * Move focus in, keep it in, and hand it back on close.
+   *
+   * Without this the report opens with focus still on the button behind the
+   * overlay: PageDown does nothing, Tab walks the page underneath, and a
+   * keyboard user cannot reach the artefact this product calls its deliverable.
+   */
   useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    dialogRef.current?.focus();
+
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab" || !dialogRef.current) return;
+      const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
+
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      previous?.focus();
+    };
   }, [onClose]);
 
   const primaryImage = result.images.find((i) => i.modality === "optical") ?? result.images[0];
 
   const downloadPdf = useCallback(async () => {
     setPdfBusy(true);
+    setPdfError(null);
     try {
       const [html2canvasModule, jsPDFModule] = await Promise.all([
         import("html2canvas"),
@@ -71,7 +171,7 @@ export default function ReportModal({
       const { jsPDF } = jsPDFModule;
 
       const el = document.getElementById("satquery-report");
-      if (!el) return;
+      if (!el) throw new Error("Report content was not found on the page");
 
       const canvas = await html2canvas(el, {
         backgroundColor: "#14161c",
@@ -103,7 +203,14 @@ export default function ReportModal({
 
       pdf.save(`satquery-report-${result.id.slice(0, 8)}.pdf`);
     } catch (e) {
+      // A spinner that stops with nothing downloaded and nothing said is the
+      // worst of the three possible outcomes.
       console.error("PDF generation failed:", e);
+      setPdfError(
+        e instanceof Error
+          ? `Could not build the PDF: ${e.message}. Print to PDF instead.`
+          : "Could not build the PDF. Print to PDF instead.",
+      );
     } finally {
       setPdfBusy(false);
     }
@@ -111,20 +218,26 @@ export default function ReportModal({
 
   return (
     <div
-      className="bg-ink-950/80 animate-fade-in fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 backdrop-blur-sm sm:p-8"
+      className="bg-ink-950/80 animate-fade-in fixed inset-0 z-50 flex items-start justify-center p-4 backdrop-blur-sm sm:p-8"
       onClick={onClose}
+      role="presentation"
     >
       <div
         id="satquery-report"
+        ref={dialogRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label="SatQuery analysis report"
         onClick={(e) => e.stopPropagation()}
-        className="border-ink-700 bg-ink-850 animate-scale-in w-full max-w-3xl overflow-hidden rounded-2xl border shadow-2xl shadow-black/40"
+        className="border-ink-700 bg-ink-850 animate-scale-in max-h-full w-full max-w-3xl overflow-y-auto rounded-2xl border shadow-2xl shadow-black/40 outline-none"
       >
         {/* Accent stripe */}
-        <div className="from-accent via-accent-dim to-accent-glow h-1 bg-gradient-to-r" />
+        <div className="from-accent via-accent-dim to-accent-glow sticky top-0 z-20 h-1 bg-gradient-to-r" />
 
         <div className="p-6 sm:p-8">
-          {/* Header */}
-          <div className="flex items-start justify-between gap-4">
+          {/* Header — sticky, so Close is reachable from anywhere in a long report */}
+          <div className="bg-ink-850 sticky top-1 z-10 -mx-6 flex items-start justify-between gap-4 px-6 pb-3 sm:-mx-8 sm:px-8">
             <div>
               <SectionLabel>SatQuery analysis report</SectionLabel>
               <h2 className="text-mist-100 mt-2 text-xl font-semibold tracking-[-0.01em]">
@@ -177,6 +290,15 @@ export default function ReportModal({
             </div>
           </div>
 
+          {pdfError && (
+            <p
+              role="alert"
+              className="border-bad/30 bg-bad/8 text-bad mt-3 rounded-lg border px-3 py-2 text-xs print:hidden"
+            >
+              {pdfError}
+            </p>
+          )}
+
           {/* Body */}
           <div className="mt-5">
             <Field label="Query">
@@ -220,13 +342,7 @@ export default function ReportModal({
                 {result.agents.map((agent) => (
                   <div
                     key={agent.agent}
-                    className={`border-ink-700 bg-ink-800/40 rounded-lg border-l-2 p-3 ${
-                      agent.status === "ok"
-                        ? "border-l-accent"
-                        : agent.status === "failed"
-                          ? "border-l-bad"
-                          : "border-l-ink-600"
-                    }`}
+                    className="border-ink-700 bg-ink-800/40 rounded-lg border p-3"
                   >
                     <div className="flex items-baseline justify-between gap-2">
                       <p className="text-mist-100 text-xs font-semibold">{agent.displayName}</p>
@@ -235,7 +351,7 @@ export default function ReportModal({
                       )}
                     </div>
                     <p className="text-mist-400 mt-1 text-xs">{agent.claim}</p>
-                    <p className="text-mist-500 mt-1 text-[10px] italic">{agent.method}</p>
+                    <p className="text-mist-500 mt-1 text-[11px] italic">{agent.method}</p>
                   </div>
                 ))}
               </div>
@@ -291,20 +407,18 @@ export default function ReportModal({
             {primaryImage && (
               <Field label="Visual evidence">
                 <div className="flex flex-wrap gap-3">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={rasterUrl(
-                      primaryImage.sceneKey,
-                      primaryImage.modality === "sar" ? "sar" : "optical",
-                    )}
-                    alt="Analysed scene"
-                    className="border-ink-700 w-48 rounded-lg border"
+                  <EvidenceThumbnail
+                    result={result}
+                    sceneKey={primaryImage.sceneKey}
+                    modality={primaryImage.modality}
                   />
                   <div className="text-mist-400 flex-1 text-xs">
                     <p>
-                      {result.visualization.overlays.length} evidence overlay
-                      {result.visualization.overlays.length === 1 ? "" : "s"} available in the
-                      workspace.
+                      {result.visualization.primaryOverlayIds
+                        .map((id) => result.visualization.overlays.find((o) => o.id === id)?.label)
+                        .filter(Boolean)
+                        .join(", ") || "No overlay"}{" "}
+                      shown above, with each mapped region outlined.
                     </p>
                     {result.agents
                       .flatMap((a) => a.regions)
@@ -331,7 +445,7 @@ export default function ReportModal({
                       <div className="flex flex-col items-center">
                         {/* node */}
                         <span
-                          className={`flex size-6 items-center justify-center rounded-full border text-[10px] font-medium ${
+                          className={`flex size-6 items-center justify-center rounded-full border text-[11px] font-medium ${
                             isOk
                               ? "border-good/40 bg-good/10 text-good"
                               : isFail
@@ -343,8 +457,8 @@ export default function ReportModal({
                         </span>
                         {/* label */}
                         <div className="mt-1.5 w-20 text-center">
-                          <p className="text-mist-200 truncate text-[10px] font-medium">{step.title}</p>
-                          <p className="text-mist-500 tabular font-mono text-[9px]">{step.durationMs} ms</p>
+                          <p className="text-mist-200 truncate text-[11px] font-medium">{step.title}</p>
+                          <p className="text-mist-500 tabular font-mono text-[10px]">{step.durationMs} ms</p>
                         </div>
                       </div>
                       {/* connector line */}

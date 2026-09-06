@@ -22,6 +22,7 @@ import { EvidencePanel, TracePanel } from "@/components/panels";
 import { SectionLabel } from "@/components/primitives";
 import { analyze, fetchCatalogue, type Catalogue } from "@/lib/satquery/client";
 import { SCENE_SIZE } from "@/lib/satquery/constants";
+import { formatLatLon } from "@/lib/satquery/geo";
 import type { DemoScenario } from "@/lib/satquery/scenarios";
 import type { AgentId, AnalysisResult, ExpertOptions, Region } from "@/lib/satquery/types";
 
@@ -70,6 +71,13 @@ function WorkspaceInner() {
   const [showMeActive, setShowMeActive] = useState(false);
   const [activeAgent, setActiveAgent] = useState<AgentId | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
+  /**
+   * Below `lg` the rails are not rendered, so the same panels appear in a sheet.
+   * Without it, Why? and the Expert toggle pointed at a `display:none` element
+   * and silently did nothing -- a control that reports success and changes
+   * nothing is worse than one that is absent.
+   */
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   // --- bootstrap ------------------------------------------------------------
 
@@ -165,6 +173,21 @@ function WorkspaceInner() {
     }
   };
 
+  /** Focus a rail panel, and on small screens actually bring it on screen. */
+  const openRail = useCallback((tab: RightTab) => {
+    setRightTab(tab);
+    setSheetOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (!sheetOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSheetOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [sheetOpen]);
+
   const toggleOverlay = (id: string) => {
     setVisibleOverlayIds((prev) =>
       prev.includes(id) ? prev.filter((o) => o !== id) : [...prev, id],
@@ -220,13 +243,80 @@ function WorkspaceInner() {
     );
   }
 
+  // Rendered twice -- in the desktop rail and in the mobile sheet -- so the two
+  // can never drift apart.
+  const railTabs = (
+    <div className="border-ink-700 flex border-b" role="tablist">
+      {(
+        [
+          { id: "evidence" as const, label: "Why" },
+          { id: "trace" as const, label: "Trace" },
+          ...(mode === "expert" ? [{ id: "control" as const, label: "Control" }] : []),
+        ] satisfies { id: RightTab; label: string }[]
+      ).map((tab) => (
+        <button
+          key={tab.id}
+          role="tab"
+          aria-selected={rightTab === tab.id}
+          onClick={() => setRightTab(tab.id)}
+          className={`flex-1 px-3 py-2.5 text-xs font-medium transition-colors ${
+            rightTab === tab.id
+              ? "text-accent border-accent border-b-2"
+              : "text-mist-500 hover:text-mist-300 border-b-2 border-transparent"
+          }`}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  const railBody =
+    rightTab === "control" && catalogue ? (
+      <ExpertPanel
+        specialists={catalogue.specialists}
+        languageLayer={catalogue.languageLayer}
+        options={options}
+        onChange={setOptions}
+        onRun={run}
+        busy={busy}
+      />
+    ) : result ? (
+      rightTab === "evidence" ? (
+        <EvidencePanel result={result} onFocusAgent={onFocusAgent} activeAgent={activeAgent} />
+      ) : (
+        <TracePanel result={result} />
+      )
+    ) : (
+      <div className="flex h-full items-center justify-center p-6">
+        <p className="text-mist-500 text-center text-xs leading-relaxed">
+          Evidence and the execution trace appear here once an analysis has run.
+        </p>
+      </div>
+    );
+
   return (
     <div className="flex h-screen flex-col overflow-hidden">
+      {/* The document had no h1 at all: the only heading was the result's h2,
+          leaving a screen reader no structure to navigate the workspace by. */}
+      <h1 className="sr-only">
+        SatQuery analysis workspace{scenario ? ` — ${scenario.title}` : ""}
+      </h1>
+
+      {/* Ask, analyse and answer were announced by nothing. */}
+      <p className="sr-only" role="status" aria-live="polite">
+        {busy
+          ? "Analysing imagery."
+          : result
+            ? `${result.headline}. Confidence ${Math.round(result.confidence * 100)} percent. ${result.evidence.verdict}`
+            : ""}
+      </p>
+
       <TopBar
         mode={mode}
         onModeChange={(m) => {
           setMode(m);
-          setRightTab(m === "expert" ? "control" : "evidence");
+          openRail(m === "expert" ? "control" : "evidence");
         }}
         scenarioTitle={scenario?.title}
         languageLayer={catalogue?.languageLayer.name}
@@ -253,7 +343,7 @@ function WorkspaceInner() {
                         : "border-transparent hover:border-ink-700 hover:bg-ink-800/60"
                     }`}
                   >
-                    <span className="text-mist-500 tabular font-mono text-[10px]">
+                    <span className="text-mist-500 tabular font-mono text-[11px]">
                       {s.index}
                     </span>
                     <span className="text-mist-300 text-[11px]">{s.title}</span>
@@ -270,6 +360,27 @@ function WorkspaceInner() {
 
         {/* centre: imagery, question, answer */}
         <main className="flex min-h-0 flex-col gap-3 overflow-y-auto p-4">
+          {/* The left rail is not rendered below `lg`, so its contents get a
+              disclosure here rather than disappearing with the breakpoint. */}
+          {scenario && (
+            <details className="border-ink-700 bg-ink-850/60 group rounded-xl border lg:hidden">
+              <summary className="text-mist-300 marker:content-none flex cursor-pointer items-center justify-between px-3.5 py-2.5 text-xs font-medium">
+                <span>
+                  Inputs &amp; compatibility
+                  <span className="text-mist-500 ml-1.5 font-normal">
+                    {scenario.images.length} image{scenario.images.length === 1 ? "" : "s"}
+                  </span>
+                </span>
+                <span className="text-mist-500 transition-transform group-open:rotate-180" aria-hidden>
+                  ⌄
+                </span>
+              </summary>
+              <div className="border-ink-700 border-t p-3.5">
+                <InputPanel images={scenario.images} validation={result?.validation} />
+              </div>
+            </details>
+          )}
+
           <div className="flex min-h-[42vh] flex-col lg:min-h-[46vh]">
             <Viewer
               layers={previewLayers}
@@ -293,6 +404,16 @@ function WorkspaceInner() {
             suggestions={suggestions}
           />
 
+          <button
+            onClick={() => openRail(mode === "expert" ? "control" : "evidence")}
+            className="border-ink-700 bg-ink-850/60 text-mist-300 hover:bg-ink-800 hover:text-mist-100 flex items-center justify-between rounded-xl border px-3.5 py-2.5 text-xs font-medium transition-colors lg:hidden"
+          >
+            <span>{mode === "expert" ? "Evidence, trace & controls" : "Evidence & trace"}</span>
+            <span className="text-mist-500" aria-hidden>
+              ↑
+            </span>
+          </button>
+
           {error && (
             <p className="border-bad/30 bg-bad/8 text-bad rounded-lg border px-3 py-2 text-xs">
               {error}
@@ -303,7 +424,7 @@ function WorkspaceInner() {
             <>
               <ResultCard
                 result={result}
-                onWhy={() => setRightTab("evidence")}
+                onWhy={() => openRail("evidence")}
                 onShowMe={onShowMe}
                 whyActive={rightTab === "evidence"}
                 showMeActive={showMeActive}
@@ -327,7 +448,14 @@ function WorkspaceInner() {
               <div className="border-ink-700 bg-ink-850/50 rounded-xl border border-dashed p-5">
                 <p className="text-mist-300 text-sm">
                   {scenario
-                    ? `${scenario.images.length} image${scenario.images.length === 1 ? "" : "s"} loaded. Ask a question to begin.`
+                    ? `${scenario.images.length} image${scenario.images.length === 1 ? "" : "s"} loaded${
+                        scenario.images[0]
+                          ? ` over ${formatLatLon(
+                              (scenario.images[0].bounds.west + scenario.images[0].bounds.east) / 2,
+                              (scenario.images[0].bounds.south + scenario.images[0].bounds.north) / 2,
+                            )}`
+                          : ""
+                      }. Ask a question to begin.`
                     : "Loading imagery…"}
                 </p>
                 <p className="text-mist-500 mt-1 text-xs">
@@ -341,58 +469,40 @@ function WorkspaceInner() {
 
         {/* right: evidence, trace, control */}
         <aside className="border-ink-700 hidden min-h-0 flex-col border-l lg:flex">
-          <div className="border-ink-700 flex border-b">
-            {(
-              [
-                { id: "evidence" as const, label: "Why" },
-                { id: "trace" as const, label: "Trace" },
-                ...(mode === "expert" ? [{ id: "control" as const, label: "Control" }] : []),
-              ] satisfies { id: RightTab; label: string }[]
-            ).map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setRightTab(tab.id)}
-                className={`flex-1 px-3 py-2.5 text-xs font-medium transition-colors ${
-                  rightTab === tab.id
-                    ? "text-accent border-accent border-b-2"
-                    : "text-mist-500 hover:text-mist-300 border-b-2 border-transparent"
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="min-h-0 flex-1">
-            {rightTab === "control" && catalogue ? (
-              <ExpertPanel
-                specialists={catalogue.specialists}
-                languageLayer={catalogue.languageLayer}
-                options={options}
-                onChange={setOptions}
-                onRun={run}
-                busy={busy}
-              />
-            ) : result ? (
-              rightTab === "evidence" ? (
-                <EvidencePanel
-                  result={result}
-                  onFocusAgent={onFocusAgent}
-                  activeAgent={activeAgent}
-                />
-              ) : (
-                <TracePanel result={result} />
-              )
-            ) : (
-              <div className="flex h-full items-center justify-center p-6">
-                <p className="text-mist-500 text-center text-xs leading-relaxed">
-                  Evidence and the execution trace appear here once an analysis has run.
-                </p>
-              </div>
-            )}
-          </div>
+          {railTabs}
+          <div className="min-h-0 flex-1">{railBody}</div>
         </aside>
       </div>
+
+      {sheetOpen && (
+        <div
+          className="fixed inset-0 z-40 lg:hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Evidence, trace and controls"
+        >
+          <button
+            className="bg-ink-950/70 absolute inset-0 backdrop-blur-[2px]"
+            aria-label="Close panel"
+            onClick={() => setSheetOpen(false)}
+          />
+          <div className="border-ink-700 bg-ink-900 animate-slide-up absolute inset-x-0 bottom-0 flex max-h-[82vh] flex-col rounded-t-2xl border-t">
+            <div className="flex justify-center pt-2.5 pb-1.5">
+              <span className="bg-ink-600 h-1 w-9 rounded-full" />
+            </div>
+            {railTabs}
+            <div className="min-h-0 flex-1 overflow-y-auto">{railBody}</div>
+            <div className="border-ink-700 border-t p-2.5">
+              <button
+                onClick={() => setSheetOpen(false)}
+                className="border-ink-600 bg-ink-800 text-mist-200 hover:bg-ink-750 min-h-11 w-full rounded-lg border text-sm font-medium transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {reportOpen && result && (
         <ReportModal result={result} onClose={() => setReportOpen(false)} />

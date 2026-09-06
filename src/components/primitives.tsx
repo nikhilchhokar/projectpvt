@@ -62,17 +62,37 @@ function useCountUp(target: number, duration = 900) {
   const frameRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const start = performance.now();
-    const from = 0;
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / duration);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setValue(from + (target - from) * eased);
-      if (t < 1) frameRef.current = requestAnimationFrame(tick);
-    };
-    frameRef.current = requestAnimationFrame(tick);
+    /**
+     * Honour reduced motion, and never let the frame loop decide what number
+     * the user sees.
+     *
+     * This drives the figure the whole product exists to justify. Animating it
+     * purely from requestAnimationFrame meant a throttled or backgrounded tab
+     * rendered a flat 0% next to a green "Evidence consistent" pill — a
+     * contradiction on screen at the exact moment trust is being asked for. The
+     * timer below settles on the measured value whatever the frames do.
+     */
+    const reduced =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+    if (!reduced) {
+      const start = performance.now();
+      const tick = (now: number) => {
+        const t = Math.min(1, (now - start) / duration);
+        const eased = 1 - Math.pow(1 - t, 3);
+        setValue(target * eased);
+        if (t < 1) frameRef.current = requestAnimationFrame(tick);
+      };
+      frameRef.current = requestAnimationFrame(tick);
+    }
+
+    // Under reduced motion this fires immediately; otherwise it is the backstop.
+    const settle = window.setTimeout(() => setValue(target), reduced ? 0 : duration + 150);
+
     return () => {
       if (frameRef.current) cancelAnimationFrame(frameRef.current);
+      window.clearTimeout(settle);
     };
   }, [target, duration]);
 
@@ -147,7 +167,7 @@ export function Panel({
 
 export function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-mist-500 text-[10px] font-semibold tracking-[0.14em] uppercase">
+    <p className="text-mist-500 text-[11px] font-semibold tracking-[0.14em] uppercase">
       {children}
     </p>
   );
@@ -158,7 +178,7 @@ export function SectionDivider({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-3 py-2">
       <div className="from-ink-600 h-px flex-1 bg-gradient-to-r to-transparent" />
-      <span className="text-mist-500 text-[10px] font-semibold tracking-[0.14em] uppercase">
+      <span className="text-mist-500 text-[11px] font-semibold tracking-[0.14em] uppercase">
         {children}
       </span>
       <div className="from-ink-600 h-px flex-1 bg-gradient-to-l to-transparent" />
@@ -249,7 +269,7 @@ export function Toggle({
     <label className="hover:bg-ink-800/60 group flex cursor-pointer items-center justify-between gap-3 rounded-lg px-3 py-2.5 transition-colors">
       <span className="min-w-0">
         <span className="text-mist-200 block text-xs font-medium">{label}</span>
-        {hint && <span className="text-mist-500 block text-[10px] leading-snug">{hint}</span>}
+        {hint && <span className="text-mist-500 block text-[11px] leading-snug">{hint}</span>}
       </span>
       <button
         role="switch"

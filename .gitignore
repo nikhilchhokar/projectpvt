@@ -48,3 +48,8 @@ next-env.d.ts
 
 # local Claude Code settings
 .claude/settings.local.json
+
+# impeccable: platform-specific binary, re-downloaded on first run
+/.claude/skills/impeccable/scripts/bin/
+# impeccable: per-run critique snapshots
+/.impeccable/

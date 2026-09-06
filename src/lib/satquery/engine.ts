@@ -23,6 +23,7 @@ import { SCENE_SIZE } from "./scene";
 import type {
   AgentId,
   AgentResult,
+  AnalysisFailure,
   AnalysisRequest,
   AnalysisResult,
   ImageAsset,
@@ -34,6 +35,17 @@ import type {
   Visualization,
 } from "./types";
 import { validateInputs } from "./validator";
+
+/**
+ * Interpretation confidence below which the engine declines to answer.
+ *
+ * The deterministic interpreter scores 0.42 when nothing in the query matched
+ * any known signal, and its fallback intent is a general scene description --
+ * so without this gate, 300 characters of gibberish returns a fully-formed
+ * land-cover result marked "Evidence consistent". Answering a question nobody
+ * asked is a louder dishonesty than any wrong percentage.
+ */
+const MIN_INTERPRETATION_CONFIDENCE = 0.5;
 
 const LAYER_LANGUAGE = "Local language layer";
 const LAYER_ROUTER = "Task router";
@@ -196,6 +208,52 @@ export async function runAnalysis(request: AnalysisRequest): Promise<AnalysisRes
     provider.name,
   );
 
+  // --- 1b. decline questions that were not understood -----------------------
+
+  if (interpretation.confidence < MIN_INTERPRETATION_CONFIDENCE) {
+    const failure: AnalysisFailure = {
+      code: "unclear_query",
+      title: "I could not tell what you are asking",
+      message: `Nothing in that question matched a capability I have, so I read it as a general scene description with only ${Math.round(
+        interpretation.confidence * 100,
+      )}% confidence. Rather than answer a question you did not ask, here is what I can be asked.`,
+      nextSteps: [
+        "Ask what is visible: \"Describe the land cover in this image\"",
+        "Ask where something is: \"Highlight the water body\"",
+        "Ask what changed: \"Has the built-up area increased?\"",
+        "Ask for radar corroboration: \"Use optical and SAR together\"",
+      ],
+    };
+    const evidence = assessEvidence([], [], options);
+    return {
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      query: request.query,
+      interpretation,
+      plan: { intent: interpretation.intent, tools: [], rationale: "Halted: query not understood" },
+      validation: { ok: true, checks: [] },
+      agents: [],
+      evidence: {
+        ...evidence,
+        status: "insufficient",
+        overallConfidence: 0,
+        verdict: failure.message,
+        recommendation: undefined,
+      },
+      headline: failure.title,
+      summary: failure.message,
+      icon: "blocked",
+      confidence: 0,
+      visualization: buildVisualization(images, [], undefined),
+      trace,
+      languageProvider: provider.name,
+      images,
+      totalDurationMs: Math.round(performance.now() - startedAt),
+      reportSummary: failure.message,
+      failure,
+    };
+  }
+
   // --- 2. validate ----------------------------------------------------------
 
   const validateStart = performance.now();
@@ -237,7 +295,7 @@ export async function runAnalysis(request: AnalysisRequest): Promise<AnalysisRes
       },
       headline: validation.failure.title,
       summary: validation.failure.message,
-      icon: "⚠️",
+      icon: "blocked",
       confidence: 0,
       visualization: buildVisualization(images, [], undefined),
       trace,

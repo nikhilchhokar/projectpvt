@@ -132,10 +132,16 @@ export function EvidencePanel({
         <SectionLabel>Final assessment</SectionLabel>
         <p className="text-mist-200 mt-2 text-xs leading-relaxed">{result.evidence.verdict}</p>
         {result.evidence.spatialAgreement && (
-          <p className="text-mist-500 tabular mt-2 font-mono text-[11px]">
-            mean IoU {result.evidence.spatialAgreement.iou.toFixed(3)} across{" "}
-            {result.evidence.spatialAgreement.pairs.length} pair
-            {result.evidence.spatialAgreement.pairs.length === 1 ? "" : "s"}
+          <p
+            className="text-mist-500 mt-2 text-[11px]"
+            title={`Intersection over union: ${result.evidence.spatialAgreement.iou.toFixed(3)}`}
+          >
+            Detections from independent analyses overlap by{" "}
+            <span className="tabular font-mono">
+              {Math.round(result.evidence.spatialAgreement.iou * 100)}%
+            </span>{" "}
+            across {result.evidence.spatialAgreement.pairs.length} comparison
+            {result.evidence.spatialAgreement.pairs.length === 1 ? "" : "s"}.
           </p>
         )}
       </div>
@@ -184,12 +190,12 @@ export function TracePanel({ result }: { result: AnalysisResult }) {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline justify-between gap-2">
                     <span className="text-mist-100 text-sm font-medium">{step.title}</span>
-                    <span className="text-mist-500 tabular shrink-0 font-mono text-[10px]">
+                    <span className="text-mist-500 tabular shrink-0 font-mono text-[11px]">
                       {step.durationMs < 1 ? "<1" : step.durationMs} ms
                     </span>
                   </div>
                   <p className="text-mist-400 mt-0.5 text-xs leading-relaxed">{step.detail}</p>
-                  <p className="text-mist-500 mt-1 text-[10px] tracking-wide">
+                  <p className="text-mist-500 mt-1 text-[11px] tracking-wide">
                     {step.layer}
                     {step.provider && step.provider !== step.title && (
                       <span className="text-mist-400"> · {step.provider}</span>

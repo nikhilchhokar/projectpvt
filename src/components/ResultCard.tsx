@@ -31,7 +31,7 @@ export default function ResultCard({
   const hasPlace = Boolean(result.visualization.focus);
 
   return (
-    <div className="border-ink-700 border-l-accent bg-ink-850 animate-fade-up rounded-xl border border-l-2 p-5">
+    <div className="border-ink-700 bg-ink-850 animate-fade-up rounded-xl border p-5">
       <div className="flex items-start justify-between gap-4">
         <SectionLabel>SatQuery result</SectionLabel>
         <span className="text-mist-500 tabular font-mono text-[11px]">
@@ -39,14 +39,15 @@ export default function ResultCard({
         </span>
       </div>
 
-      <div className="mt-3 flex items-start gap-3">
-        <span className="text-3xl leading-none select-none" aria-hidden>
-          {result.icon}
-        </span>
-        <h2 className="text-mist-100 text-xl leading-snug font-semibold tracking-[-0.01em] sm:text-2xl">
-          {result.headline}
-        </h2>
-      </div>
+      {/*
+        No glyph beside the headline. An emoji sitting two inches from EPSG:32644
+        and a 100 m scale bar argues with everything else on screen, and the
+        status it stood for is already carried -- with more precision -- by the
+        confidence meter and the evidence pill below.
+      */}
+      <h2 className="text-mist-100 mt-3 text-xl leading-snug font-semibold tracking-[-0.01em] sm:text-2xl">
+        {result.headline}
+      </h2>
 
       <p className="text-mist-400 mt-2.5 text-sm leading-relaxed">{result.summary}</p>
 

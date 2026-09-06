@@ -82,6 +82,14 @@ export default function ExpertPanel({
   busy,
 }: ExpertPanelProps) {
   const enabled = options.enabledAgents ?? specialists.map((s) => s.id);
+
+  /** Resting values, so the panel can say which knobs have actually been turned. */
+  const modifiedCount = [
+    options.confidenceThreshold !== undefined && options.confidenceThreshold !== 0.6,
+    options.spatialToleranceM !== undefined && options.spatialToleranceM !== 50,
+    options.waterThreshold !== undefined && options.waterThreshold !== 0.05,
+    options.builtUpThreshold !== undefined && options.builtUpThreshold !== 0.13,
+  ].filter(Boolean).length;
   const set = (patch: Partial<ExpertOptions>) => onChange({ ...options, ...patch });
 
   const toggleAgent = (id: AgentId, on: boolean) => {
@@ -123,7 +131,7 @@ export default function ExpertPanel({
               >
                 {/* check badge */}
                 <span
-                  className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full text-[10px] transition-colors ${
+                  className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full text-[11px] transition-colors ${
                     isOn
                       ? "bg-accent text-ink-950"
                       : "bg-ink-700 text-transparent"
@@ -133,7 +141,7 @@ export default function ExpertPanel({
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="text-mist-200 block text-xs font-medium">{specialist.displayName}</span>
-                  <span className="text-mist-500 mt-0.5 block text-[10px] leading-snug">{specialist.question}</span>
+                  <span className="text-mist-500 mt-0.5 block text-[11px] leading-snug">{specialist.question}</span>
                 </span>
               </button>
             );
@@ -150,7 +158,7 @@ export default function ExpertPanel({
             </span>
             <span className="text-mist-200 text-xs font-medium">{languageLayer.name}</span>
           </div>
-          <p className="text-mist-500 mt-1.5 text-[10px] leading-snug">
+          <p className="text-mist-500 mt-1.5 text-[11px] leading-snug">
             {languageLayer.kind === "local-model"
               ? "On-device model handling interpretation and phrasing"
               : "Rule-based interpreter. Configure SATQUERY_LOCAL_LLM_URL to route this through PocketLLM."}
@@ -193,9 +201,28 @@ export default function ExpertPanel({
           />
         </div>
 
-        {/* --- Parameters --- */}
-        <SectionDivider>Parameters</SectionDivider>
-        <div className="mt-1">
+        {/*
+          Parameters collapse by default.
+          Expert Mode presented fourteen simultaneous decisions in a 336px
+          column with nothing marking which were still at their defaults. The
+          four specialists and Run are what this panel is for; the thresholds
+          are for the run after the first one.
+        */}
+        <details className="group mt-4">
+          <summary className="text-mist-400 hover:text-mist-200 marker:content-none flex min-h-9 cursor-pointer items-center justify-between rounded-md px-1.5 text-[11px] font-semibold tracking-[0.14em] uppercase transition-colors">
+            <span className="flex items-center gap-2">
+              Parameters
+              {modifiedCount > 0 && (
+                <span className="bg-accent/15 text-accent rounded-full px-1.5 py-0.5 text-[10px] font-medium tracking-normal normal-case">
+                  {modifiedCount} changed
+                </span>
+              )}
+            </span>
+            <span className="text-mist-500 transition-transform group-open:rotate-180" aria-hidden>
+              ⌄
+            </span>
+          </summary>
+          <div className="mt-1">
           <Slider
             label="Confidence threshold"
             value={options.confidenceThreshold ?? 0.6}
@@ -232,7 +259,23 @@ export default function ExpertPanel({
             format={(v) => v.toFixed(3)}
             onChange={(v) => set({ builtUpThreshold: v })}
           />
-        </div>
+            {modifiedCount > 0 && (
+              <button
+                onClick={() =>
+                  set({
+                    confidenceThreshold: undefined,
+                    spatialToleranceM: undefined,
+                    waterThreshold: undefined,
+                    builtUpThreshold: undefined,
+                  })
+                }
+                className="text-mist-500 hover:text-mist-200 mt-1 min-h-8 px-1.5 text-[11px] font-medium transition-colors"
+              >
+                Reset to defaults
+              </button>
+            )}
+          </div>
+        </details>
       </div>
 
       <div className="border-ink-700 bg-ink-900/70 border-t p-3">

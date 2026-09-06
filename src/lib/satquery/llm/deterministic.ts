@@ -279,7 +279,7 @@ export class DeterministicLanguageProvider implements LocalLLMProvider {
       const dissenter = sar && !sar.signal?.detected ? "radar" : "the other analysis path";
       return {
         text: `Optical suggests a ${magnitude}% built-up ${direction}, but ${dissenter} does not confirm it`,
-        icon: "⚖️",
+        icon: "contested",
         usedModalities: modalities,
       };
     }
@@ -294,16 +294,16 @@ export class DeterministicLanguageProvider implements LocalLLMProvider {
       if (Math.abs(relative) < 0.03) {
         return {
           text: "No significant built-up change detected",
-          icon: "➖",
+          icon: "stable",
           usedModalities: modalities,
         };
       }
-      return { text: change.claim, icon: "🏗️", usedModalities: modalities };
+      return { text: change.claim, icon: "expansion", usedModalities: modalities };
     }
 
     if (interpretation.intent === "grounding" && grounding) {
       if (!grounding.regions.length) {
-        return { text: grounding.claim, icon: "🔍", usedModalities: modalities };
+        return { text: grounding.claim, icon: "scene", usedModalities: modalities };
       }
       const primary = grounding.regions[0];
       const image = images.find((i) => i.modality === "optical") ?? images[0];
@@ -313,25 +313,25 @@ export class DeterministicLanguageProvider implements LocalLLMProvider {
         grounding.regions.length === 1
           ? `${capitalise(label)} located in the ${where}`
           : `${grounding.regions.length} ${label} regions located, the largest in the ${where}`;
-      return { text, icon: "📍", usedModalities: modalities };
+      return { text, icon: "located", usedModalities: modalities };
     }
 
     if (interpretation.intent === "cross_modal_analysis" && vision && sar) {
       return {
         text: `${vision.claim}, corroborated by radar backscatter`,
-        icon: "📡",
+        icon: "cross-modal",
         usedModalities: modalities,
       };
     }
 
     if (vision) {
-      return { text: vision.claim, icon: "🛰️", usedModalities: modalities };
+      return { text: vision.claim, icon: "scene", usedModalities: modalities };
     }
 
     const first = args.change ?? args.sar ?? args.grounding;
     return {
       text: first?.claim ?? "No specialist was able to answer this question",
-      icon: "🛰️",
+      icon: "scene",
       usedModalities: modalities,
     };
   }

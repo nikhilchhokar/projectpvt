@@ -62,7 +62,7 @@ export default function Home() {
             </div>
 
             <div className="mt-9">
-              <p className="text-mist-500 text-[10px] font-semibold tracking-[0.14em] uppercase">
+              <p className="text-mist-500 text-[11px] font-semibold tracking-[0.14em] uppercase">
                 Try asking
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
@@ -94,7 +94,7 @@ export default function Home() {
             </div>
 
             <div className="border-ink-600 bg-ink-850/95 absolute -bottom-5 -left-4 w-[min(20rem,88%)] rounded-xl border p-4 shadow-2xl shadow-black/50 backdrop-blur sm:-left-6">
-              <p className="text-mist-500 text-[10px] font-semibold tracking-[0.14em] uppercase">
+              <p className="text-mist-500 text-[11px] font-semibold tracking-[0.14em] uppercase">
                 SatQuery result
               </p>
               <p className="text-mist-100 mt-2 flex items-start gap-2 text-[15px] leading-snug font-medium">
@@ -117,7 +117,7 @@ export default function Home() {
 
         {/* capabilities */}
         <section className="border-ink-700 border-t pt-10">
-          <p className="text-mist-500 text-[10px] font-semibold tracking-[0.14em] uppercase">
+          <p className="text-mist-500 text-[11px] font-semibold tracking-[0.14em] uppercase">
             Five specialists, one interface
           </p>
           <div className="mt-5 grid gap-x-6 gap-y-5 sm:grid-cols-3 lg:grid-cols-5">
@@ -137,7 +137,7 @@ export default function Home() {
 
         {/* scenarios */}
         <section className="border-ink-700 border-t pt-10">
-          <p className="text-mist-500 text-[10px] font-semibold tracking-[0.14em] uppercase">
+          <p className="text-mist-500 text-[11px] font-semibold tracking-[0.14em] uppercase">
             Demo scenarios
           </p>
           <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

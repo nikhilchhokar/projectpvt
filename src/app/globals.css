@@ -17,7 +17,12 @@
   --color-ink-600: #353c4c;
   --color-ink-500: #475264;
 
-  --color-mist-500: #6b7a8d;
+  /**
+   * Lightened from #6b7a8d, which measured 4.1:1 on --color-ink-850 and failed
+   * AA in all 46 places it is used -- every section label, metadata line, hint
+   * and trace timing. This value measures 5.2:1 against the same ground.
+   */
+  --color-mist-500: #7d8b9d;
   --color-mist-400: #8494a7;
   --color-mist-300: #a0afc1;
   --color-mist-200: #c8d1de;
@@ -46,6 +51,7 @@
   --animate-sweep: sweep 1.4s ease-in-out infinite;
   --animate-scale-in: scale-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
   --animate-pulse-ring: pulse-ring 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-slide-up: slide-up 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @keyframes fade-up {
@@ -95,6 +101,15 @@
   }
   to {
     opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
     transform: none;
   }
 }

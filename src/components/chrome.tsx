@@ -199,10 +199,10 @@ export function HistoryList({
             </p>
             <div className="mt-1 flex items-center gap-1.5">
               <span className={`size-1.5 rounded-full ${STATUS_META[entry.evidence.status].dot}`} />
-              <span className="text-mist-500 tabular font-mono text-[10px]">
+              <span className="text-mist-500 tabular font-mono text-[11px]">
                 {Math.round(entry.confidence * 100)}%
               </span>
-              <span className="text-mist-500 truncate text-[10px]">
+              <span className="text-mist-500 truncate text-[11px]">
                 {entry.interpretation.intent.replace(/_/g, " ")}
               </span>
             </div>

@@ -269,6 +269,14 @@ export interface AnalysisResult {
   headline: string;
   /** Supporting sentence under the headline. */
   summary: string;
+  /**
+   * Semantic key for the finding -- "expansion", "reduction", "stable",
+   * "located", "scene", "cross-modal", "contested", "blocked".
+   *
+   * Deliberately not a glyph. The presentation layer decides how a finding
+   * looks; an emoji baked in here would put a consumer-app register inside the
+   * analysis contract, where a report generator or a CLI has no use for it.
+   */
   icon: string;
   confidence: number;
   visualization: Visualization;
@@ -285,6 +293,7 @@ export interface AnalysisResult {
 export interface AnalysisFailure {
   code:
     | "no_images"
+    | "unclear_query"
     | "incompatible_inputs"
     | "missing_modality"
     | "insufficient_evidence"

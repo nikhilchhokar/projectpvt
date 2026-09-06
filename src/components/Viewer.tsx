@@ -22,6 +22,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { rasterUrl } from "@/lib/satquery/client";
 import { GSD_M, SCENE_SIZE } from "@/lib/satquery/constants";
 import { formatLatLon, pixelToGeo } from "@/lib/satquery/geo";
+import { buildOverlayCanvas } from "@/lib/satquery/overlay";
 import type { GeoBounds, Region, VizLayer, VizOverlay } from "@/lib/satquery/types";
 
 interface View {
@@ -48,41 +49,6 @@ const FLIGHT_MS = 700;
 const MIN_SCALE = 0.2;
 const MAX_SCALE = 14;
 
-/** Decode an RLE mask into a tinted, semi-transparent canvas ready to composite. */
-function buildOverlayCanvas(overlay: VizOverlay): HTMLCanvasElement | null {
-  if (!overlay.mask) return null;
-  const { width, height, runs } = overlay.mask;
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return null;
-
-  const image = ctx.createImageData(width, height);
-  const data = image.data;
-  const hex = overlay.color.replace("#", "");
-  const r = parseInt(hex.slice(0, 2), 16);
-  const g = parseInt(hex.slice(2, 4), 16);
-  const b = parseInt(hex.slice(4, 6), 16);
-
-  let index = 0;
-  let value = 0;
-  for (const run of runs) {
-    if (value) {
-      for (let i = index; i < index + run; i++) {
-        data[i * 4] = r;
-        data[i * 4 + 1] = g;
-        data[i * 4 + 2] = b;
-        data[i * 4 + 3] = 150;
-      }
-    }
-    index += run;
-    value ^= 1;
-  }
-  ctx.putImageData(image, 0, 0);
-  return canvas;
-}
-
 export default function Viewer({
   layers,
   activeLayerId,
@@ -103,11 +69,33 @@ export default function Viewer({
   const pendingRef = useRef(false);
   const animRef = useRef<number | null>(null);
   const imagesRef = useRef(new Map<string, HTMLImageElement>());
+  /** Sources whose decode failed, so the canvas can say so instead of waiting forever. */
+  const failedSrcRef = useRef(new Set<string>());
   const overlayCanvasRef = useRef(new Map<string, HTMLCanvasElement>());
   const dragRef = useRef<{ x: number; y: number } | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
 
   const activeLayer = layers.find((l) => l.id === activeLayerId) ?? layers[0];
+
+  /**
+   * Group the legend by the specialist that produced each mask.
+   *
+   * Seven ungrouped chips sat in a row where "Built-up at baseline" and
+   * "Built-up" were indistinguishable without reading source -- and this is
+   * precisely the control someone uses to check the answer. Attributing each
+   * overlay to its source turns a flat list into three short ones.
+   */
+  const overlayGroups = useMemo(() => {
+    const order: { agent: string; label: string }[] = [
+      { agent: "change", label: "Change" },
+      { agent: "vision", label: "Optical" },
+      { agent: "grounding", label: "Grounding" },
+      { agent: "sar", label: "SAR" },
+    ];
+    return order
+      .map((g) => ({ ...g, overlays: overlays.filter((o) => o.sourceAgent === g.agent) }))
+      .filter((g) => g.overlays.length > 0);
+  }, [overlays]);
 
   const layerSrc = useMemo(() => {
     if (!activeLayer) return null;
@@ -153,8 +141,29 @@ export default function Viewer({
     if (base) {
       ctx.drawImage(base, view.x, view.y, drawW, drawH);
     } else {
+      /**
+       * No decoded raster yet. Paint the footprint and say which state it is in.
+       * An untouched canvas is transparent, and a large transparent rectangle
+       * beside four rendered thumbnails reads as a failure rather than a wait.
+       */
+      const failed = failedSrcRef.current.has(src ?? "");
       ctx.fillStyle = "#0e1219";
       ctx.fillRect(view.x, view.y, drawW, drawH);
+      ctx.strokeStyle = failed ? "rgba(248,113,113,0.45)" : "rgba(255,255,255,0.10)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash(failed ? [] : [6, 5]);
+      ctx.strokeRect(view.x + 0.5, view.y + 0.5, drawW - 1, drawH - 1);
+      ctx.setLineDash([]);
+
+      ctx.font = '500 12px ui-sans-serif, system-ui, sans-serif';
+      ctx.fillStyle = failed ? "rgba(248,113,113,0.9)" : "rgba(155,166,182,0.75)";
+      ctx.textAlign = "center";
+      ctx.fillText(
+        failed ? "Imagery could not be loaded" : "Loading imagery…",
+        view.x + drawW / 2,
+        view.y + drawH / 2,
+      );
+      ctx.textAlign = "left";
     }
 
     for (const id of visible) {
@@ -186,26 +195,29 @@ export default function Viewer({
       const chipW = textWidth + padding * 2;
       const chipH = 19;
       const chipY = y - chipH - 4 < 0 ? y + boxH + 4 : y - chipH - 4;
+      // Keep the chip inside the viewport; an annotation cut off by the frame
+      // edge names a detection the user cannot read.
+      const chipX = Math.max(4, Math.min(x, w - chipW - 4));
 
       const collides = placed.some(
         (p) =>
-          x < p.x + p.w + 4 &&
-          x + chipW + 4 > p.x &&
+          chipX < p.x + p.w + 4 &&
+          chipX + chipW + 4 > p.x &&
           chipY < p.y + p.h + 2 &&
           chipY + chipH + 2 > p.y,
       );
       if (collides) continue;
-      placed.push({ x, y: chipY, w: chipW, h: chipH });
+      placed.push({ x: chipX, y: chipY, w: chipW, h: chipH });
 
       ctx.fillStyle = "rgba(6,8,11,0.88)";
       ctx.beginPath();
-      ctx.roundRect(x, chipY, chipW, chipH, 4);
+      ctx.roundRect(chipX, chipY, chipW, chipH, 4);
       ctx.fill();
       ctx.strokeStyle = "rgba(255,255,255,0.16)";
       ctx.stroke();
 
       ctx.fillStyle = "#e8ecf2";
-      ctx.fillText(label, x + padding, chipY + 13);
+      ctx.fillText(label, chipX + padding, chipY + 13);
     }
 
     // Scale bar: choose a round ground distance that fits a sensible width.
@@ -231,23 +243,27 @@ export default function Viewer({
   }, []);
 
   /**
-   * Coalesce repaints to one per frame.
+   * Coalesce repaints, racing a frame against a timer.
    *
-   * A hidden document never runs requestAnimationFrame, so a workspace opened
-   * in a background tab -- or restored by the browser -- would paint nothing
-   * and stay blank even after the user switched to it, since no resize would
-   * follow to wake it. When hidden, fall back to a timer.
+   * Relying on requestAnimationFrame alone strands the canvas blank. A hidden
+   * document never fires one at all, but the worse case is a *visible* document
+   * whose first frame is throttled or dropped: nothing else wakes the viewer --
+   * no resize follows, no state changes -- so the largest element on screen
+   * stays empty permanently while the thumbnails beside it render fine. That
+   * reads as broken, not as loading. Whichever of the two fires first wins.
    */
   const requestDraw = useCallback(() => {
     if (pendingRef.current) return;
     pendingRef.current = true;
+    let ran = false;
     const run = () => {
+      if (ran) return;
+      ran = true;
       pendingRef.current = false;
       draw();
     };
-    if (typeof document !== "undefined" && document.visibilityState === "hidden") {
-      window.setTimeout(run, 0);
-    } else {
+    window.setTimeout(run, 32);
+    if (typeof document !== "undefined" && document.visibilityState !== "hidden") {
       requestAnimationFrame(run);
     }
   }, [draw]);
@@ -364,7 +380,14 @@ export default function Viewer({
     }
     const image = new Image();
     image.onload = () => {
+      failedSrcRef.current.delete(layerSrc);
       imagesRef.current.set(layerSrc, image);
+      requestDraw();
+    };
+    image.onerror = () => {
+      // Record and repaint. Without this the viewer waits on a load event that
+      // is never coming and shows an empty frame with no explanation.
+      failedSrcRef.current.add(layerSrc);
       requestDraw();
     };
     image.src = layerSrc;
@@ -373,7 +396,7 @@ export default function Viewer({
   useEffect(() => {
     for (const overlay of overlays) {
       if (overlayCanvasRef.current.has(overlay.id)) continue;
-      const canvas = buildOverlayCanvas(overlay);
+      const canvas = buildOverlayCanvas(overlay.mask, overlay.color);
       if (canvas) overlayCanvasRef.current.set(overlay.id, canvas);
     }
     requestDraw();
@@ -490,8 +513,35 @@ export default function Viewer({
 
       </div>
 
+      {/*
+        SHOW ME is the product's proof, and to a screen reader a <canvas> is
+        nothing at all. The region labels, areas and centroids already exist as
+        text in the result, so they are published here rather than left locked
+        inside the bitmap.
+      */}
+      <p className="sr-only" aria-live="polite">
+        {activeLayer ? `${activeLayer.label} imagery, ${activeLayer.caption}.` : "No imagery loaded."}
+        {regions.length > 0 &&
+          ` ${regions.length} detected region${regions.length === 1 ? "" : "s"} highlighted: ` +
+            regions
+              .map(
+                (r) =>
+                  `${r.label}, ${r.areaKm2.toFixed(2)} square kilometres, ${Math.round(
+                    r.confidence * 100,
+                  )}% confidence`,
+              )
+              .join("; ") +
+            "."}
+      </p>
+
       <canvas
         ref={canvasRef}
+        role="img"
+        aria-label={
+          activeLayer
+            ? `${activeLayer.label} satellite imagery, ${SCENE_SIZE} by ${SCENE_SIZE} pixels`
+            : "Satellite imagery viewer"
+        }
         className="block size-full cursor-grab touch-none active:cursor-grabbing"
         onWheel={onWheel}
         onPointerDown={onPointerDown}
@@ -544,31 +594,35 @@ export default function Viewer({
         argument, and the controls for it are not.
       */}
       {overlays.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1">
-          <span className="text-mist-500 mr-1 text-[10px] font-semibold tracking-[0.14em] uppercase">
-            Evidence
-          </span>
-          {overlays.map((overlay) => {
-            const on = visibleOverlayIds.includes(overlay.id);
-            return (
-              <button
-                key={overlay.id}
-                onClick={() => onToggleOverlay(overlay.id)}
-                aria-pressed={on}
-                className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
-                  on
-                    ? "border-ink-600 bg-ink-800 text-mist-100"
-                    : "border-transparent text-mist-500 hover:text-mist-300 hover:bg-ink-850"
-                }`}
-              >
-                <span
-                  className="size-2 rounded-[3px] transition-opacity"
-                  style={{ background: overlay.color, opacity: on ? 1 : 0.45 }}
-                />
-                {overlay.label}
-              </button>
-            );
-          })}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+          {overlayGroups.map((group) => (
+            <div key={group.agent} className="flex flex-wrap items-center gap-1">
+              <span className="text-mist-500 mr-0.5 text-[11px] font-semibold tracking-[0.1em] uppercase">
+                {group.label}
+              </span>
+              {group.overlays.map((overlay) => {
+                const on = visibleOverlayIds.includes(overlay.id);
+                return (
+                  <button
+                    key={overlay.id}
+                    onClick={() => onToggleOverlay(overlay.id)}
+                    aria-pressed={on}
+                    className={`flex min-h-8 items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
+                      on
+                        ? "border-ink-600 bg-ink-800 text-mist-100"
+                        : "border-transparent text-mist-500 hover:text-mist-300 hover:bg-ink-850"
+                    }`}
+                  >
+                    <span
+                      className="size-2 rounded-[3px] transition-opacity"
+                      style={{ background: overlay.color, opacity: on ? 1 : 0.45 }}
+                    />
+                    {overlay.label}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </div>
       )}
     </div>

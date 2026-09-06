@@ -13,11 +13,13 @@
  * deterministic provider and the UI reports that provider by name. The product
  * never claims a model is running that is not.
  *
- * Division of labour is deliberate. The model handles interpretation and
- * phrasing -- language tasks, where a mistake is visible and recoverable. It is
- * never given the job of producing a measurement: every number in the final
- * answer comes from the specialists, and `simplifyResult` rejects any rewrite
- * that introduces a figure the analysis did not produce.
+ * Division of labour is deliberate, and narrower than it first appears. The
+ * model reads the question -- classifying intent, where a mistake is caught by
+ * the validator a step later. It does not write the answer: the deterministic
+ * composer does that, assembling sentences only out of measured quantities. It
+ * is never given the job of producing a measurement.
+ *
+ * That split was decided by measurement, not taste. See `simplifyResult`.
  */
 
 import type {
@@ -52,6 +54,8 @@ export interface PocketLLMConfig {
   url: string;
   model: string;
   displayName: string;
+  /** Opt in to model-written phrasing. Off by default; see simplifyResult. */
+  allowPhrasing: boolean;
 }
 
 export function readPocketLLMConfig(): PocketLLMConfig | null {
@@ -61,6 +65,7 @@ export function readPocketLLMConfig(): PocketLLMConfig | null {
     url,
     model: process.env.SATQUERY_LOCAL_LLM_MODEL ?? "pocketllm",
     displayName: process.env.SATQUERY_LOCAL_LLM_NAME ?? "PocketLLM",
+    allowPhrasing: process.env.SATQUERY_LOCAL_LLM_PHRASING === "1",
   };
 }
 
@@ -164,8 +169,25 @@ export class PocketLLMProvider implements LocalLLMProvider {
     return this.fallback.summarizeEvidence(agents);
   }
 
+  /**
+   * Phrasing stays deterministic unless explicitly opted into.
+   *
+   * The digit guard below is necessary but not sufficient, and measuring a 1B
+   * model against the deterministic composer showed exactly why. It never
+   * invented a figure -- but it dropped all three measurements from a
+   * land-cover summary, added a "city" that no analysis had found, and
+   * rewrote "a 9% built-up increase that radar does not confirm" into "a 9%
+   * increase in optical signals", which is a different and false claim.
+   *
+   * Numbers survived; meaning did not. So the division of labour is narrower
+   * than it first looks: the model reads the question, and the deterministic
+   * composer -- which can only assemble sentences out of measured quantities --
+   * writes the answer. Set SATQUERY_LOCAL_LLM_PHRASING=1 to experiment with
+   * model-written phrasing, ideally against a larger model.
+   */
   async simplifyResult(input: SimplifyInput): Promise<SimplifiedAnswer> {
     const base = await this.fallback.simplifyResult(input);
+    if (!this.config.allowPhrasing) return base;
     try {
       const prompt = [
         "Rewrite this finding as one clear sentence for a non-expert.",

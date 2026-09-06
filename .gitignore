@@ -53,3 +53,6 @@ next-env.d.ts
 /.claude/skills/impeccable/scripts/bin/
 # impeccable: per-run critique snapshots
 /.impeccable/
+
+# the example is meant to be committed; real env files are not
+!.env.example

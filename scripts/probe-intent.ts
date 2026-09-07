@@ -1,74 +1,116 @@
-/** Measures the local model's intent classification against known-correct labels. */
-const ENDPOINT = process.env.SATQUERY_LOCAL_LLM_URL!;
-const MODEL = process.env.SATQUERY_LOCAL_LLM_MODEL!;
+/**
+ * Measures whether a local model can be trusted with routing.
+ *
+ * Runs the demo queries through the real adapter -- including its validation and
+ * fallback -- rather than a hand-rolled prompt, so the number produced is what
+ * the product would actually do, and prints the rule-based interpreter on the
+ * same cases so the comparison is like for like.
+ *
+ * Each case is repeated, because instability would disqualify a model just as
+ * firmly as inaccuracy. Measured so far, both local models were perfectly
+ * stable and simply wrong in different places:
+ *
+ *   rules        7/7   ~3ms for all seven
+ *   llama3.2:1b  6/7   routes "describe the land cover and major objects" to grounding
+ *   llama3.2:3b  5/7   routes both "highlight the water" and "where is the water"
+ *                      to scene_description
+ *
+ * Bigger was worse. Until a model clears 7/7 twice, the rules stay primary.
+ *
+ *   SATQUERY_LOCAL_LLM_URL=... SATQUERY_LOCAL_LLM_MODEL=llama3.2:3b \
+ *     npx tsx scripts/probe-intent.ts [repeats]
+ */
 
-const INTENTS = ["scene_description","grounding","change_analysis","quantitative_change_analysis","cross_modal_analysis"];
+import { DeterministicLanguageProvider } from "../src/lib/satquery/llm/deterministic";
+import { PocketLLMProvider, readPocketLLMConfig } from "../src/lib/satquery/llm/pocketllm";
+import type { InterpretContext } from "../src/lib/satquery/llm/provider";
+import type { Intent } from "../src/lib/satquery/types";
 
-const CASES: [string, string, { bi: boolean; sar: boolean }][] = [
-  ["Describe the land cover and major objects visible in this image.", "scene_description", { bi: false, sar: false }],
-  ["What is visible here?", "scene_description", { bi: false, sar: false }],
-  ["Highlight the water body.", "grounding", { bi: false, sar: false }],
-  ["Has the built-up area increased?", "quantitative_change_analysis", { bi: true, sar: true }],
-  ["Use the optical and SAR images together to confirm what changed.", "cross_modal_analysis", { bi: true, sar: true }],
+interface Case {
+  query: string;
+  expected: Intent;
+  context: InterpretContext;
+}
+
+const single: InterpretContext = {
+  hasBitemporal: false,
+  hasSar: false,
+  hasOptical: true,
+  imageCount: 1,
+};
+const pair: InterpretContext = {
+  hasBitemporal: true,
+  hasSar: true,
+  hasOptical: true,
+  imageCount: 4,
+};
+
+const CASES: Case[] = [
+  { query: "Describe the land cover and major objects visible in this image.", expected: "scene_description", context: single },
+  { query: "What is visible here?", expected: "scene_description", context: single },
+  { query: "Highlight the water body.", expected: "grounding", context: single },
+  { query: "Where is the water?", expected: "grounding", context: single },
+  { query: "What changed between these dates?", expected: "change_analysis", context: pair },
+  { query: "Has the built-up area increased?", expected: "quantitative_change_analysis", context: pair },
+  { query: "Use the optical and SAR images together to confirm what changed.", expected: "cross_modal_analysis", context: pair },
 ];
 
-function bare(q: string, c: { bi: boolean; sar: boolean }) {
-  return [
-    "Classify a remote-sensing question. Reply with JSON only.",
-    `Allowed intent values: ${INTENTS.join(", ")}.`,
-    `Available inputs: bi-temporal=${c.bi}, SAR=${c.sar}.`,
-    'Schema: {"intent": string, "target": string|null}',
-    `Question: ${q}`,
-  ].join("\n");
-}
-
-function fewShot(q: string, c: { bi: boolean; sar: boolean }) {
-  return [
-    "You label remote-sensing questions with one intent. Reply with JSON only, no prose.",
-    "",
-    "Definitions:",
-    "- scene_description: asks what is present or visible overall. Describing, listing, summarising content.",
-    "- grounding: asks WHERE one named feature is. Locating, highlighting, pointing to a specific thing.",
-    "- change_analysis: asks what changed between two dates, without asking how much.",
-    "- quantitative_change_analysis: asks how much something changed, increased or decreased.",
-    "- cross_modal_analysis: explicitly asks to use radar/SAR, or to combine two sensors.",
-    "",
-    "Examples:",
-    'Q: "Describe what is in this image" -> {"intent":"scene_description","target":null}',
-    'Q: "What land cover is visible?" -> {"intent":"scene_description","target":null}',
-    'Q: "Where is the water?" -> {"intent":"grounding","target":"water"}',
-    'Q: "Highlight the built-up areas" -> {"intent":"grounding","target":"built-up"}',
-    'Q: "What changed between these dates?" -> {"intent":"change_analysis","target":null}',
-    'Q: "How much has the city grown?" -> {"intent":"quantitative_change_analysis","target":"built-up"}',
-    'Q: "Use radar and optical together" -> {"intent":"cross_modal_analysis","target":null}',
-    "",
-    `Available inputs: bi-temporal=${c.bi}, SAR=${c.sar}.`,
-    `Q: "${q}" ->`,
-  ].join("\n");
-}
-
-async function classify(prompt: string): Promise<string> {
-  const r = await fetch(ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: MODEL, messages: [{ role: "user", content: prompt }], max_tokens: 96, temperature: 0 }),
-    signal: AbortSignal.timeout(60_000),
-  });
-  const d = await r.json();
-  const raw: string = d.choices?.[0]?.message?.content ?? "";
-  const m = raw.match(/\{[\s\S]*?\}/);
-  if (!m) return "NO_JSON";
-  try { return JSON.parse(m[0]).intent ?? "NO_INTENT"; } catch { return "BAD_JSON"; }
+/** The incumbent, measured on the same cases so the comparison is like for like. */
+async function baseline() {
+  const rules = new DeterministicLanguageProvider();
+  let correct = 0;
+  const started = performance.now();
+  for (const testCase of CASES) {
+    const result = await rules.interpretQuery(testCase.query, testCase.context);
+    if (result.intent === testCase.expected) correct++;
+    else console.log(`FAIL rules    ${result.intent.padEnd(34)} ${testCase.query.slice(0, 46)}`);
+  }
+  console.log(
+    `rules    ${correct}/${CASES.length} correct in ${(performance.now() - started).toFixed(1)}ms total
+`,
+  );
 }
 
 async function main() {
-  for (const [q, expected, ctx] of CASES) {
-    const a = await classify(bare(q, ctx));
-    const b = await classify(fewShot(q, ctx));
+  await baseline();
+  const config = readPocketLLMConfig();
+  if (!config) {
+    console.log("No local model configured. Set SATQUERY_LOCAL_LLM_URL.");
+    process.exit(1);
+  }
+
+  const repeats = Number(process.argv[2] ?? 3);
+  const provider = new PocketLLMProvider(config);
+
+  console.log(`model    ${config.model}`);
+  console.log(`repeats  ${repeats} per query`);
+  console.log(`probing  ${await provider.isAvailable()}\n`);
+
+  let correct = 0;
+  let stable = 0;
+
+  for (const testCase of CASES) {
+    const seen: string[] = [];
+    for (let i = 0; i < repeats; i++) {
+      const result = await provider.interpretQuery(testCase.query, testCase.context);
+      seen.push(result.intent);
+    }
+    const allAgree = new Set(seen).size === 1;
+    const allRight = seen.every((intent) => intent === testCase.expected);
+    if (allRight) correct++;
+    if (allAgree) stable++;
+
+    const mark = allRight ? "ok  " : "FAIL";
+    const stability = allAgree ? "stable  " : "UNSTABLE";
     console.log(
-      `${(a === expected ? "ok  " : "FAIL")} bare=${a.padEnd(30)} ` +
-      `${(b === expected ? "ok  " : "FAIL")} fewshot=${b.padEnd(30)} ${q.slice(0, 44)}`,
+      `${mark} ${stability} ${[...new Set(seen)].join(" / ").padEnd(34)} ${testCase.query.slice(0, 46)}`,
     );
   }
+
+  console.log(
+    `\ncorrect ${correct}/${CASES.length}   stable ${stable}/${CASES.length}` +
+      `\nverdict: ${correct === CASES.length && stable === CASES.length ? "TRUSTWORTHY for routing" : "NOT trustworthy for routing"}`,
+  );
 }
+
 main();

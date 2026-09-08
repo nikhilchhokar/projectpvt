@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Wordmark } from "@/components/chrome";
 import { rasterUrl } from "@/lib/satquery/client";
+import { runAnalysis } from "@/lib/satquery/engine";
 import { DEMO_SCENARIOS, SUGGESTED_PROMPTS } from "@/lib/satquery/scenarios";
 import { RASTER_VERSION } from "@/lib/satquery/version";
 
@@ -21,7 +22,21 @@ const CAPABILITIES = [
   { name: "Evidence", question: "Do the signals agree?" },
 ];
 
-export default function Home() {
+export default async function Home() {
+  /**
+   * The preview card runs the real analysis.
+   *
+   * It used to hardcode "+14%" and "90%" as a mockup, which made the one
+   * hardcoded claim in the product the very first thing a visitor read -- and
+   * left it free to drift from what the engine actually produces the moment a
+   * threshold or a scene changed. This is a server component, so the engine can
+   * simply be called: the landing page now shows whatever the analysis returns.
+   */
+  const scenario = DEMO_SCENARIOS.find((s) => s.id === "change") ?? DEMO_SCENARIOS[0];
+  const preview = await runAnalysis({ query: scenario.query, images: scenario.images });
+  const previewConfidence = Math.round(preview.confidence * 100);
+  const consistent = preview.evidence.status === "consistent";
+
   return (
     <div className="flex min-h-screen flex-col">
       <header className="flex items-center justify-between px-6 py-5 sm:px-10">
@@ -97,19 +112,29 @@ export default function Home() {
               <p className="text-mist-500 text-[11px] font-semibold tracking-[0.14em] uppercase">
                 SatQuery result
               </p>
-              <p className="text-mist-100 mt-2 flex items-start gap-2 text-[15px] leading-snug font-medium">
-                <span aria-hidden>🏗️</span>
-                Built-up area increased by approximately 14%
+              <p className="text-mist-100 mt-2 text-[15px] leading-snug font-medium">
+                {preview.headline}
               </p>
               <div className="mt-3 flex items-center gap-3">
                 <div className="bg-ink-700 h-1.5 flex-1 overflow-hidden rounded-full">
-                  <div className="bg-good h-full rounded-full" style={{ width: "90%" }} />
+                  <div
+                    className={`h-full rounded-full ${consistent ? "bg-good" : "bg-warn"}`}
+                    style={{ width: `${previewConfidence}%` }}
+                  />
                 </div>
-                <span className="text-mist-100 tabular font-mono text-sm">90%</span>
+                <span className="text-mist-100 tabular font-mono text-sm">
+                  {previewConfidence}%
+                </span>
               </div>
-              <p className="text-good mt-2.5 flex items-center gap-2 text-xs font-medium">
-                <span className="bg-good size-1.5 rounded-full" />
-                Evidence consistent
+              <p
+                className={`mt-2.5 flex items-center gap-2 text-xs font-medium ${
+                  consistent ? "text-good" : "text-warn"
+                }`}
+              >
+                <span
+                  className={`size-1.5 rounded-full ${consistent ? "bg-good" : "bg-warn"}`}
+                />
+                {consistent ? "Evidence consistent" : "Evidence partially consistent"}
               </p>
             </div>
           </div>

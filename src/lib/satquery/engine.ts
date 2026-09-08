@@ -313,10 +313,26 @@ export async function runAnalysis(request: AnalysisRequest): Promise<AnalysisRes
   let harmonised: LandCoverThresholds | undefined;
   const pair = opticalPair(baseContext);
   if (pair) {
-    harmonised = harmonizeThresholds(
+    const pooled = harmonizeThresholds(
       classifyCached(sceneOf(pair.before)),
       classifyCached(sceneOf(pair.after)),
     );
+    /**
+     * Expert overrides sit on top of the pooled cuts, not underneath them.
+     *
+     * The harmonised set is passed to `classify` as a complete threshold
+     * object, which takes precedence over the individual override fields --
+     * so without this merge the Expert Mode sliders were silently inert for
+     * exactly the analysis they matter most to. Overriding here keeps both
+     * properties: the cut is still identical across the two epochs, so a
+     * seasonal shift cannot masquerade as change, and it is still the cut the
+     * user asked for.
+     */
+    harmonised = {
+      ...pooled,
+      water: options.waterThreshold ?? pooled.water,
+      brightness: options.builtUpThreshold ?? pooled.brightness,
+    };
   }
   const ctx: AgentContext = { ...baseContext, harmonised };
 
